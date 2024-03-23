@@ -2,6 +2,7 @@
 
 import awswrangler as wr
 import pandas as pd
+import boto3
 from pandas.errors import ParserError
 
 # Local imports
@@ -110,6 +111,59 @@ class PandasToData(Transform):
         description = f"SageWorks data source: {self.output_uuid}"
         glue_table_settings = {"description": description, "parameters": sageworks_meta}
         if self.output_format == "parquet":
+            # Extract column types and convert to dictionary
+            column_types, _partitions_types = wr.catalog.extract_athena_types(self.output_df)
+
+            # Low Level Creation of the Glue Table
+            glue_client = self.boto_session.client('glue')
+
+            table_input = {
+                'Name': self.output_uuid,
+                'StorageDescriptor': {
+                    'Columns': [{'Name': name, 'Type': dtype} for name, dtype in column_types.items()],
+                    'Location': s3_storage_path,
+                    'InputFormat': 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+                    'OutputFormat': 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+                    'SerdeInfo': {
+                        'SerializationLibrary': 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+                    }
+                },
+                'TableType': 'EXTERNAL_TABLE',
+                'Parameters': glue_table_settings['parameters']
+            }
+
+            glue_client.delete_table(DatabaseName=self.data_catalog_db, Name=self.output_uuid)
+            glue_client.create_table(
+                DatabaseName=self.data_catalog_db,
+                TableInput=table_input
+            )
+
+            """
+            # Create the Glue table
+            wr.catalog.create_parquet_table(
+                database=self.data_catalog_db,
+                table=self.output_uuid,
+                path=s3_storage_path,
+                columns_types=column_types,
+                boto3_session=self.boto_session,
+                description=glue_table_settings['description'],
+                parameters=glue_table_settings['parameters']
+            )
+            """
+
+            # Write the data to S3
+            wr.s3.to_parquet(
+                self.output_df,
+                path=s3_storage_path,
+                dataset=True,
+                mode="overwrite",
+                filename_prefix=f"{self.output_uuid}_",
+                boto3_session=self.boto_session,
+                partition_cols=None,
+                sanitize_columns=False
+            )
+
+            """old code
             wr.s3.to_parquet(
                 self.output_df,
                 path=s3_storage_path,
@@ -123,6 +177,7 @@ class PandasToData(Transform):
                 glue_table_settings=glue_table_settings,
                 sanitize_columns=False,
             )  # FIXME: Have some logic around partition columns
+            """
 
         # Note: In general Parquet works will for most uses cases. We recommend using Parquet
         #       You can use JSON_EXTRACT on Parquet string field, and it works great.
@@ -173,11 +228,6 @@ if __name__ == "__main__":
     df_to_data.set_output_tags(["test", "small"])
     df_to_data.transform()
     print(f"{test_uuid} stored as a SageWorks DataSource")
-
-    # Test column names with uppercase
-    df.rename(columns={"iq_score": "IQ_Score"}, inplace=True)
-    df_to_data.set_input(df)
-    df_to_data.transform()
 
     # Create my Pandas to DataSource using a JSONL format
     """
