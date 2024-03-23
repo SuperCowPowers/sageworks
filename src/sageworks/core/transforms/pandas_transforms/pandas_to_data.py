@@ -111,6 +111,10 @@ class PandasToData(Transform):
         description = f"SageWorks data source: {self.output_uuid}"
         glue_table_settings = {"description": description, "parameters": sageworks_meta}
         if self.output_format == "parquet":
+
+            #
+            # WIP: Warning all this code is WIP and should NOT be used in production
+            #
             # Extract column types and convert to dictionary
             column_types, _partitions_types = wr.catalog.extract_athena_types(self.output_df)
 
