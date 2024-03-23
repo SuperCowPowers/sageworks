@@ -94,13 +94,6 @@ class PandasToData(Transform):
         # Create the Output Parquet file S3 Storage Path
         s3_storage_path = f"{self.data_sources_s3_path}/{self.output_uuid}"
 
-        # Convert columns names to lowercase, Athena will not work with uppercase column names
-        if str(self.output_df.columns) != str(self.output_df.columns.str.lower()):
-            for c in self.output_df.columns:
-                if c != c.lower():
-                    self.log.important(f"Column name {c} converted to lowercase: {c.lower()}")
-            self.output_df.columns = self.output_df.columns.str.lower()
-
         # Convert Object Columns to String
         self.output_df = self.convert_object_to_string(self.output_df)
 
